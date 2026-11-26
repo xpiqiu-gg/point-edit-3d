@@ -1,0 +1,5 @@
+{
+  "name": "point-edit-3d-local",
+  "interface": {"displayName": "Point Edit 3D Local"},
+  "plugins": [{"name":"point-edit-3d","source":{"source":"local","path":"./plugins/point-edit-3d"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"},"category":"Productivity"}]
+}

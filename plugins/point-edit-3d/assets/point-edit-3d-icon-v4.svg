@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F1F2F5"/>
+    </linearGradient>
+    <clipPath id="cube"><path d="M233.5 79.0 Q256 66 278.5 79.0 L398.5 148.0 Q421 161 421.0 187.0 L421.0 325.0 Q421 351 398.5 364.0 L278.5 433.0 Q256 446 233.5 433.0 L113.5 364.0 Q91 351 91.0 325.0 L91.0 187.0 Q91 161 113.5 148.0 Z"/></clipPath>
+  </defs>
+
+  <rect x="4" y="4" width="504" height="504" rx="112" fill="url(#bg)" stroke="#E3E5EA" stroke-width="4"/>
+
+  <g clip-path="url(#cube)">
+    <polygon points="256.0,47.0 437.5,151.5 256.0,256.0 74.5,151.5" fill="#FFE8A3"/>
+    <polygon points="74.5,151.5 256.0,256.0 256.0,465.0 74.5,360.5" fill="#FBD26A"/>
+    <polygon points="256.0,256.0 437.5,151.5 437.5,360.5 256.0,465.0" fill="#F4B93C"/>
+  </g>
+  <g fill="none" stroke="#FFFFFF" stroke-opacity="0.8" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="104.2,168.6 256.0,256.0 407.8,168.6"/>
+    <line x1="256" y1="256" x2="256.0" y2="430.8"/>
+  </g>
+
+  <g transform="translate(294,278) scale(4.2)">
+    <path d="M0 0 L0 28 L7.5 21.5 L12.5 33 L18 30.5 L13 19.5 L22.5 19.5 Z"
+          fill="#2B8CFF" stroke="#FFFFFF" stroke-width="2.6" stroke-linejoin="round"/>
+  </g>
+</svg>

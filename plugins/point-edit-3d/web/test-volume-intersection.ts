@@ -1,0 +1,12 @@
+import * as THREE from 'three';
+import assert from 'node:assert/strict';
+import {meshIntersectsVolume} from './src/lib/studio/volume-intersection';
+const mesh=new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshBasicMaterial());
+mesh.updateMatrixWorld(true);
+assert.equal(meshIntersectsVolume(mesh,new THREE.Box3(new THREE.Vector3(-0.2,-0.2,-0.2),new THREE.Vector3(0.2,0.2,0.2))),true,'box inside closed mesh');
+assert.equal(meshIntersectsVolume(mesh,new THREE.Box3(new THREE.Vector3(0.9,-0.1,-0.1),new THREE.Vector3(1.1,0.1,0.1))),true,'box crosses surface');
+assert.equal(meshIntersectsVolume(mesh,new THREE.Box3(new THREE.Vector3(3,3,3),new THREE.Vector3(4,4,4))),false,'separate objects');
+const geom=new THREE.BufferGeometry();geom.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,1,0,0,0,1,0],3));
+const tri=new THREE.Mesh(geom,new THREE.MeshBasicMaterial({side:THREE.DoubleSide}));tri.updateMatrixWorld(true);
+assert.equal(meshIntersectsVolume(tri,new THREE.Box3(new THREE.Vector3(.8,.8,-.1),new THREE.Vector3(.9,.9,.1))),false,'overlapping bounding boxes without triangle intersection');
+console.log('VOLUME_INTERSECTION_OK');

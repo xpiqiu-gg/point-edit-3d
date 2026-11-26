@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {recoveredPivotDistance} from './src/lib/studio/camera-navigation.js';
+assert.equal(recoveredPivotDistance(0.01, 80, 9000), 80, '远处可见物体应重建合适的平移和缩放尺度');
+assert.equal(recoveredPivotDistance(0.01, null, 9000), 18, '天空或空白处仍可恢复');
+assert.equal(recoveredPivotDistance(2, 80, 9000), null, '正常距离不应调整视角');
+assert.equal(recoveredPivotDistance(0.05, 0.04, 9000), null, '真正靠近物体时不要跳开');
+assert.equal(recoveredPivotDistance(0.5, 50, 9000), 50, '大场景中旋转中心偏离且视距过小时应恢复');
+assert.equal(recoveredPivotDistance(0.5, 0.6, 9000), null, '靠近实际物体时不应改变旋转中心');
+assert.equal(recoveredPivotDistance(0.5, 50, 10), null, '普通场景正常操作不应受影响');
+assert.equal(recoveredPivotDistance(0.01, 2000000, 9000), 100000, '不能超过最大缩放距离');
+console.log('NAVIGATION_PIVOT_RECOVERY_OK');

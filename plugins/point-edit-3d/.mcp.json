@@ -1,0 +1,1 @@
+{"mcpServers":{"point-edit-3d":{"command":"node","args":["./server.bundle.cjs"],"cwd":".","startup_timeout_sec":30}}}

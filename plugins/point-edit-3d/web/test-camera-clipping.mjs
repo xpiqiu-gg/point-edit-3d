@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {clippingPlanes} from './src/lib/studio/camera-clipping.js';
+const farView=clippingPlanes(90000,90000,13000);
+assert.equal(farView.near,1);
+assert.ok(farView.far>90000+13000);
+const closeView=clippingPlanes(2,500,13000);
+assert.ok(closeView.near<=0.02,'近处两单位的目标不能被近裁剪切掉');
+assert.ok(closeView.far>13500,'远景应保持可见');
+const tinyView=clippingPlanes(0.05,500,13000);
+assert.equal(tinyView.near,0.01);
+assert.ok(tinyView.far>tinyView.near);
+const closer=clippingPlanes(2,500,13000,0.1);assert.ok(closer.near<closeView.near,'较低系数允许靠得更近');
+const farther=clippingPlanes(2,500,13000,10);assert.ok(farther.near>closeView.near,'较高系数拉远近裁剪');
+console.log('CAMERA_CLIPPING_OK');

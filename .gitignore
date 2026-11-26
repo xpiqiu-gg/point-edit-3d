@@ -1,0 +1,12 @@
+node_modules/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+*.blend
+*.blend1
+*.c4d
+*.glb
+.point-edit-3d/
+backups/
+inbox/

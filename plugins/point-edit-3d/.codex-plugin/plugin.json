@@ -1,0 +1,10 @@
+{
+  "version":"0.1.0",
+  "name":"point-edit-3d",
+  "description":"Annotate and edit a live Blender or Cinema 4D scene with a local 3D preview.",
+  "mcpServers":"./.mcp.json",
+  "skills":"./skills/",
+  "author":{"name":"Point Edit 3D contributors"},
+  "interface":{"displayName":"Point Edit 3D","shortDescription":"Annotate and edit a Blender or C4D scene","longDescription":"Preview and annotate a running Blender or Cinema 4D scene, then model it with Codex.","developerName":"Local","category":"Productivity","capabilities":["Interactive","Read","Write"],"defaultPrompt":["使用 Point Edit 3D 打开当前 Blender 场景。","连接 C4D，打开当前 C4D 场景。","读取我刚提交的 Point Edit 3D 批注。"],"brandColor":"#F4B93C","logo":"./assets/point-edit-3d-icon-v4.svg","composerIcon":"./assets/point-edit-3d-icon-v4.svg"},
+  "keywords":["3d","blender","cinema-4d","c4d","annotation","visual-feedback"]
+}
