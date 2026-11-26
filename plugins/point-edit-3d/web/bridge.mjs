@@ -29,6 +29,19 @@ export function pointEditBridge({ directory = resolve('point-edit-3d-inbox'), bl
           res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({ok:true}));
         } catch(error) {res.writeHead(400,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({ok:false,error:String(error)}));}
       });
+      server.middlewares.use('/__point_edit_3d/language', async (req, res) => {
+        const origin=req.headers.origin, host=req.headers.host || '';
+        if (!/^127\.0\.0\.1:\d+$/.test(host) || (origin && origin !== `http://${host}`) || req.headers['x-point-edit'] !== 'language') return res.writeHead(403).end();
+        const file=resolve(directory,'language-settings.json');
+        try {
+          if (req.method==='GET') { let language='zh'; try { const saved=JSON.parse(await readFile(file,'utf8')); if(saved.language==='en') language='en'; } catch(e) { if(e.code!=='ENOENT') throw e; } return res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({language})); }
+          if(req.method!=='POST' || origin!==`http://${host}` || !req.headers['content-type']?.startsWith('application/json')) return res.writeHead(403).end();
+          let body=''; for await(const chunk of req) { body+=chunk; if(body.length>1024) throw new Error('Invalid settings'); }
+          const {language}=JSON.parse(body); if(language!=='zh' && language!=='en') throw new Error('Invalid language');
+          await mkdir(directory,{recursive:true}); await writeFile(file,JSON.stringify({language}),'utf8');
+          return res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'}).end(JSON.stringify({ok:true}));
+        } catch(e) {return res.writeHead(400,{'Content-Type':'application/json'}).end(JSON.stringify({ok:false}));}
+      });
       server.middlewares.use('/__point_edit_3d/view-settings', async (req, res) => {
         const origin=req.headers.origin, host=req.headers.host || '';
         if (!/^127\.0\.0\.1:\d+$/.test(host) || (origin && origin !== `http://${host}`) || req.headers['x-point-edit'] !== 'view-settings') return res.writeHead(403).end();

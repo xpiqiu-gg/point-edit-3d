@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, createContext, useContext, type RefObject, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   AppWindow,
   Box,
@@ -20,6 +20,11 @@ import type { Annotation, Finish, PickHit, TargetRef, Tool, ViewportHandle, Sele
 import { isC4d, sourceInfo } from '@/lib/studio/source';
 import { referenceNumbers } from '@/lib/studio/annotation-numbers';
 import { SHORTCUTS, DEFAULT_SHORTCUTS, loadShortcuts, saveShortcuts, shortcutFromEvent, shortcutLabel, type ShortcutId, type ShortcutMap } from '@/lib/studio/shortcuts';
+
+import { translate, loadLanguage, saveLanguage, type Language } from '@/lib/studio/i18n';
+
+const LanguageContext = createContext<Language>('zh');
+const useT = () => { const language=useContext(LanguageContext); return (value:string) => translate(value,language); };
 
 const TOOLS: { id: Tool; label: string; hint: string; icon: typeof Eye }[] = [
   { id: "look", label: "观察", hint: "转动视角", icon: Eye },
@@ -68,11 +73,15 @@ function explicitlyNamed(text: string, name: string) {
 }
 
 export function Workbench() {
+  const [language,setLanguage]=useState<Language>('zh');
+  const [languageDraft,setLanguageDraft]=useState<Language>('zh');
+  const t=(value:string)=>translate(value,language);
+  useEffect(()=>{let active=true;loadLanguage().then(value=>{if(active){setLanguage(value);setLanguageDraft(value);}}).catch(()=>{});return()=>{active=false;};},[]);
   const viewRef = useRef<ViewportHandle>(null);
   const [shortcuts, setShortcuts] = useState<ShortcutMap>({...DEFAULT_SHORTCUTS});
   const [shortcutSettings, setShortcutSettings] = useState(false);
   const [viewSettings,setViewSettings]=useState({fov:42,nearFactor:1});
-  const [settingsTab,setSettingsTab]=useState<"view"|"shortcuts">("view");
+  const [settingsTab,setSettingsTab]=useState<"view"|"shortcuts"|"language">("view");
   const [shortcutDraft,setShortcutDraft]=useState<ShortcutMap>({...DEFAULT_SHORTCUTS});
   const [capturing,setCapturing]=useState<ShortcutId|null>(null);
   const [savingSettings,setSavingSettings]=useState(false);
@@ -93,11 +102,11 @@ export function Workbench() {
   useEffect(()=>{let active=true;fetch('/__point_edit_3d/view-settings',{headers:{'X-Point-Edit':'view-settings'}}).then(r=>r.ok?r.json():null).then(data=>{const v=data?.settings;if(active&&!viewTouched.current&&v&&Number.isFinite(v.fov)&&v.fov>=30&&v.fov<=100&&Number.isFinite(v.nearFactor)&&v.nearFactor>=.1&&v.nearFactor<=10)setViewSettings({fov:v.fov,nearFactor:v.nearFactor});}).catch(()=>{});return()=>{active=false;};},[]);
   function updateView(next:{fov:number;nearFactor:number}) {
     viewTouched.current=true;setViewSettings(next);if(viewTimer.current)clearTimeout(viewTimer.current);
-    viewTimer.current=setTimeout(()=>{viewTimer.current=null;viewQueue.current=viewQueue.current.catch(()=>{}).then(async()=>{const r=await fetch('/__point_edit_3d/view-settings',{method:'POST',headers:{'Content-Type':'application/json','X-Point-Edit':'view-settings'},body:JSON.stringify(next)});if(!r.ok)throw new Error('视野设置未能保存');viewSaveError.current=false;setSettingsError('');}).catch(()=>{viewSaveError.current=true;setSettingsError('视野设置未能保存，请重试');});},300);
+    viewTimer.current=setTimeout(()=>{viewTimer.current=null;viewQueue.current=viewQueue.current.catch(()=>{}).then(async()=>{const r=await fetch('/__point_edit_3d/view-settings',{method:'POST',headers:{'Content-Type':'application/json','X-Point-Edit':'view-settings'},body:JSON.stringify(next)});if(!r.ok)throw new Error('视野设置未能保存');viewSaveError.current=false;setSettingsError('');}).catch(()=>{viewSaveError.current=true;setSettingsError(t("视野设置未能保存，请重试"));});},300);
   }
 
-  const [sceneStatus,setSceneStatus]=useState(isC4d ? '正在连接 C4D…' : '正在加载 Blender 快照…');
-  const [identityStatus, setIdentityStatus] = useState('等待场景');
+  const [sceneStatus,setSceneStatus]=useState(isC4d ? t("正在连接 C4D…") : t("正在加载 Blender 快照…"));
+  const [identityStatus, setIdentityStatus] = useState(t("等待场景"));
   const [compatibilityNotice,setCompatibilityNotice]=useState('');
   const identityRef = useRef<{sceneUid:string;uids:string[]} | null>(null);
   const pointHighlightIds=useStudio(s=>s.pointSelectionIds);
@@ -129,7 +138,7 @@ export function Workbench() {
   }
   async function checkIdentity() {
     const info = identityRef.current;
-    if (!info) { setIdentityStatus('旧快照：无稳定编号'); return; }
+    if (!info) { setIdentityStatus(t("旧快照：无稳定编号")); return; }
     setIdentityStatus(`正在检查 ${sourceLabel} 连接…`);
     try {
       const response = await fetch('/__point_edit_3d/identity', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...info, source: isC4d ? 'c4d' : 'blender'})});
@@ -140,7 +149,7 @@ export function Workbench() {
       else setIdentityStatus(`${sourceLabel} 已连接 · ${data.result.objects.length} 个编号已匹配`);
     } catch { setIdentityStatus(`${sourceLabel} 未连接或插件版本未更新`); }
   }
-  useEffect(()=>{const loaded=(event:Event)=>{const detail=(event as CustomEvent).detail; setSceneStatus(`已读取 ${isC4d ? "C4D" : "Blender"} 当前场景 · ${CATALOG.length} 个对象`); const c=detail.compatibility;const notes=[];if(Array.isArray(c?.approximate_materials)&&c.approximate_materials.length)notes.push(isC4d ? `${c.approximate_materials.length} 个材质不是标准材质，预览为近似显示` : `${c.approximate_materials.length} 种材质使用视口颜色近似`);if(c?.has_instances)notes.push(isC4d ? '几何实例按当前求值结果导出' : '几何实例可能未完整显示');if(Array.isArray(c?.warnings))for(const warning of c.warnings)if(typeof warning==='string'&&warning)notes.push(warning);setCompatibilityNotice(notes.join('；')); useStudio.getState().setSceneUid(detail.sceneUid); identityRef.current=detail.sceneUid && detail.allStable ? {sceneUid:detail.sceneUid,uids:detail.uids} : null; void checkIdentity();}; const failed=(event:Event)=>{const detail=(event as CustomEvent).detail; setSceneStatus(typeof detail==='string' ? detail : isC4d ? '无法读取 C4D 场景：请确认 C4D 已启动，并且 C4D MCP 插件已加载' : '无法读取场景，请启用 Blender 的 Point Edit 3D 插件'); setIdentityStatus('预览未载入'); useStudio.getState().setSceneUid(null);}; window.addEventListener('point-edit-scene-loaded',loaded); window.addEventListener('point-edit-scene-error',failed); return ()=>{window.removeEventListener('point-edit-scene-loaded',loaded);window.removeEventListener('point-edit-scene-error',failed)}},[]);
+  useEffect(()=>{const loaded=(event:Event)=>{const detail=(event as CustomEvent).detail; setSceneStatus(`已读取 ${isC4d ? "C4D" : "Blender"} 当前场景 · ${CATALOG.length} 个对象`); const c=detail.compatibility;const notes=[];if(Array.isArray(c?.approximate_materials)&&c.approximate_materials.length)notes.push(isC4d ? `${c.approximate_materials.length} 个材质不是标准材质，预览为近似显示` : `${c.approximate_materials.length} 种材质使用视口颜色近似`);if(c?.has_instances)notes.push(isC4d ? '几何实例按当前求值结果导出' : '几何实例可能未完整显示');if(Array.isArray(c?.warnings))for(const warning of c.warnings)if(typeof warning==='string'&&warning)notes.push(warning);setCompatibilityNotice(notes.join('；')); useStudio.getState().setSceneUid(detail.sceneUid); identityRef.current=detail.sceneUid && detail.allStable ? {sceneUid:detail.sceneUid,uids:detail.uids} : null; void checkIdentity();}; const failed=(event:Event)=>{const detail=(event as CustomEvent).detail; setSceneStatus(typeof detail==='string' ? detail : isC4d ? '无法读取 C4D 场景：请确认 C4D 已启动，并且 C4D MCP 插件已加载' : '无法读取场景，请启用 Blender 的 Point Edit 3D 插件'); setIdentityStatus(t("预览未载入")); useStudio.getState().setSceneUid(null);}; window.addEventListener('point-edit-scene-loaded',loaded); window.addEventListener('point-edit-scene-error',failed); return ()=>{window.removeEventListener('point-edit-scene-loaded',loaded);window.removeEventListener('point-edit-scene-error',failed)}},[]);
   const tool = useStudio((s) => s.tool);
   const scope = useStudio((s) => s.scope);
   const selection = useStudio((s) => s.selection);
@@ -268,16 +277,17 @@ export function Workbench() {
   }
 
   return (
+    <LanguageContext.Provider value={language}>
     <div className="flex h-dvh flex-col bg-bg text-fg">
       <header className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
         <img src="/point-edit-3d-icon-v4.svg" alt="" className="h-9 w-9 shrink-0 rounded-md" />
         <div className="min-w-0">
           <p className="truncate text-base font-medium leading-tight">Point Edit 3D</p>
           <p className="text-xs text-muted">
-            {sceneStatus} · 仅预览 · 修订 {revision}
+            {t(sceneStatus)} · {language==='en'?'Preview only · Revision':'仅预览 · 修订'} {revision}
           </p>
-          {compatibilityNotice && <p className="text-xs text-amber-400">预览提示：{compatibilityNotice}</p>}
-          {<button type="button" onClick={() => void checkIdentity()} className="text-left text-xs text-muted" title={`点击重新检查 ${sourceLabel} 连接`}>{identityStatus} · 重新检查</button>}
+          {compatibilityNotice && <p className="text-xs text-amber-400">{language==='en'?'Preview notice: ':'预览提示：'}{t(compatibilityNotice)}</p>}
+          {<button type="button" onClick={() => void checkIdentity()} className="text-left text-xs text-muted" title={language==='en'?`Recheck ${sourceLabel} connection`:`点击重新检查 ${sourceLabel} 连接`}>{t(identityStatus)} · {language==='en'?'Recheck':'重新检查'}</button>}
         </div>
         <button
           type="button"
@@ -285,7 +295,7 @@ export function Workbench() {
           className="ml-auto inline-flex h-11 items-center gap-2 rounded-md border border-line bg-raised px-3 text-sm text-fg"
         >
           <Download className="size-4" />
-          导出
+          {language==='en'?'Export':'导出'}
         </button>
       </header>
 
@@ -308,19 +318,19 @@ export function Workbench() {
             regions={displayRegions}
           />
           <div className="pointer-events-none absolute left-3 top-3 max-w-[70%] rounded-md bg-bg/80 px-3 py-2 text-xs text-muted">
-            {tool === 'volume' ? (!volumePlaced ? '点击物体放置三维框；中键旋转，右键平移。' : volumeDirty ? '拖动手柄调整后，点击“确认选区”。' : '已确认三维选区；可点击对象名称排除。') : scope === "viewport"
-              ? "整幅视口，不绑定单个物体"
+            {tool === 'volume' ? (!volumePlaced ? t("点击物体放置三维框；中键旋转，右键平移。") : volumeDirty ? t("拖动手柄调整后，点击“确认选区”。") : t("已确认三维选区；可点击对象名称排除。")) : scope === "viewport"
+              ? t("整幅视口，不绑定单个物体")
               : selection.some((item) => item.role === 'surface')
-                ? `对象：${bound.map((item) => item.name).join("、") || "无"}；表面仅记录落点。`
+                ? `${language==='en'?'Objects: ':'对象：'}${bound.map((item) => item.name).join(language==='en'?', ':'、') || (language==='en'?'None':'无')}${language==='en'?'; surfaces record hit points only.':'；表面仅记录落点。'}`
                 : hit
-                  ? `命中 ${hit.name} · ${hit.point.map((n) => n.toFixed(2)).join(", ")}`
-                  : "点选可累积；中键旋转，右键平移，滚轮缩放。"}
+                  ? `${language==='en'?'Hit':'命中'} ${hit.name} · ${hit.point.map((n) => n.toFixed(2)).join(', ')}`
+                  : t("点选可累积；中键旋转，右键平移，滚轮缩放。")}
           </div>
           {tool==='volume' && <div className="absolute left-3 top-16 flex flex-wrap gap-2 rounded-lg border border-line bg-surface/95 p-2 text-xs">
-            <button type="button" title={`快捷键 ${shortcutLabel(shortcuts.move)}`} onClick={()=>setVolumeMode('translate')} aria-pressed={volumeMode==='translate'} className={`hover-ring rounded px-3 py-2 ${volumeMode==='translate'?'bg-fg text-bg':'text-fg'}`}>移动</button>
-            <button type="button" title={`快捷键 ${shortcutLabel(shortcuts.scale)}`} onClick={()=>setVolumeMode('scale')} aria-pressed={volumeMode==='scale'} className={`hover-ring rounded px-3 py-2 ${volumeMode==='scale'?'bg-fg text-bg':'text-fg'}`}>调整尺寸</button>
-            <button type="button" disabled={!volumePlaced || boxSampling} title={`快捷键 ${shortcutLabel(shortcuts.confirm)}`} onClick={()=>viewRef.current?.confirmVolume()} className={`hover-ring rounded px-3 py-2 text-bg disabled:opacity-40 ${draftIntent==='edit' ? 'bg-edit' : 'bg-ask'}`}>确认选区</button>
-            <button type="button" disabled={!volumePlaced || boxSampling} title={`快捷键 ${shortcutLabel(shortcuts.reset)}`} onClick={()=>viewRef.current?.resetVolume()} className="hover-ring rounded border border-line px-3 py-2 text-fg disabled:opacity-40">重新放置</button>
+            <button type="button" title={`${language==='en'?'Shortcut':'快捷键'} ${shortcutLabel(shortcuts.move)}`} onClick={()=>setVolumeMode('translate')} aria-pressed={volumeMode==='translate'} className={`hover-ring rounded px-3 py-2 ${volumeMode==='translate'?'bg-fg text-bg':'text-fg'}`}>{t("移动")}</button>
+            <button type="button" title={`${language==='en'?'Shortcut':'快捷键'} ${shortcutLabel(shortcuts.scale)}`} onClick={()=>setVolumeMode('scale')} aria-pressed={volumeMode==='scale'} className={`hover-ring rounded px-3 py-2 ${volumeMode==='scale'?'bg-fg text-bg':'text-fg'}`}>{t("调整尺寸")}</button>
+            <button type="button" disabled={!volumePlaced || boxSampling} title={`${language==='en'?'Shortcut':'快捷键'} ${shortcutLabel(shortcuts.confirm)}`} onClick={()=>viewRef.current?.confirmVolume()} className={`hover-ring rounded px-3 py-2 text-bg disabled:opacity-40 ${draftIntent==='edit' ? 'bg-edit' : 'bg-ask'}`}>{t("确认选区")}</button>
+            <button type="button" disabled={!volumePlaced || boxSampling} title={`${language==='en'?'Shortcut':'快捷键'} ${shortcutLabel(shortcuts.reset)}`} onClick={()=>viewRef.current?.resetVolume()} className="hover-ring rounded border border-line px-3 py-2 text-fg disabled:opacity-40">{t("重新放置")}</button>
           </div>}
           <div className="absolute inset-x-0 bottom-3 flex justify-center px-3">
             <div className="flex max-w-full gap-1 rounded-lg border border-line bg-surface/95 p-1">
@@ -331,21 +341,21 @@ export function Workbench() {
                 return (
                   <button
                     key={item.id}
-                    title={`快捷键 ${shortcutLabel(shortcuts[item.id])}`}
+                    title={`${language==='en'?'Shortcut':'快捷键'} ${shortcutLabel(shortcuts[item.id])}`}
                     type="button"
                     aria-pressed={on}
                     onClick={() => { if (item.id === 'frame' && scope !== 'viewport') rememberSelection(); setTool(item.id); }}
                     className={`hover-ring inline-flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm ${on ? "bg-fg text-bg" : "text-fg"}`}
                   >
                     <Icon className="size-4" />
-                    <span>{item.label}</span>
-                    <span className={`hidden text-xs sm:inline ${on ? "text-bg/70" : "text-muted"}`}>{item.hint}</span>
+                    <span>{t(item.label)}</span>
+                    <span className={`hidden text-xs sm:inline ${on ? "text-bg/70" : "text-muted"}`}>{t(item.hint)}</span>
                   </button>
                 );
               })}
               </div>
-              <button type="button" onClick={undoSelection} disabled={!canUndoSelection || boxSampling} aria-label="撤销选择" title={boxSampling ? '等待框选采样完成' : `撤销上一次选择 · ${shortcutLabel(shortcuts.undo)}`} className="hover-ring inline-flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm text-fg disabled:opacity-40">
-                <Undo2 className="size-4" /><span>撤销</span>
+              <button type="button" onClick={undoSelection} disabled={!canUndoSelection || boxSampling} aria-label={t("撤销选择")} title={boxSampling ? t("等待框选采样完成") : `撤销上一次选择 · ${shortcutLabel(shortcuts.undo)}`} className="hover-ring inline-flex h-11 shrink-0 items-center gap-2 rounded-md px-3 text-sm text-fg disabled:opacity-40">
+                <Undo2 className="size-4" /><span>{t("撤销")}</span>
               </button>
             </div>
           </div>
@@ -353,12 +363,12 @@ export function Workbench() {
 
         <aside className="studio-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto border-t border-line bg-surface p-4 lg:w-96 lg:flex-none lg:border-t-0 lg:border-l">
           <section className="flex flex-col gap-3">
-            {selectionVolumes.length>0 && <div className="flex flex-wrap gap-2" aria-label="已确认的三维框">{selectionVolumes.map((region,index)=><span key={region.id} className="rounded-md border border-line bg-raised px-2 py-1 text-xs text-fg">三维框 {index+1}</span>)}</div>}
+            {selectionVolumes.length>0 && <div className="flex flex-wrap gap-2" aria-label={t("已确认的三维框")}>{selectionVolumes.map((region,index)=><span key={region.id} className="rounded-md border border-line bg-raised px-2 py-1 text-xs text-fg">{t('三维框')} {index+1}</span>)}</div>}
             <div className="flex flex-wrap gap-2">
               {scope === "viewport" ? (
-                <span className="rounded-md border border-line bg-raised px-2 py-1 text-xs text-fg">整幅视口</span>
+                <span className="rounded-md border border-line bg-raised px-2 py-1 text-xs text-fg">{t("整幅视口")}</span>
               ) : selection.length === 0 ? (
-                <span className="text-sm text-muted">还没有选中物体</span>
+                <span className="text-sm text-muted">{t("还没有选中物体")}</span>
               ) : (
                 selection.map((item) => {
                   const on = isBound(item);
@@ -381,7 +391,7 @@ export function Workbench() {
                     >
                       {item.name}
                       {percent(item.coverage) ? ` ${percent(item.coverage)}` : ""}
-                      {item.role === 'surface' ? ' · 落点' : item.coverage != null ? ' · 对象' : on ? "" : " · 未纳入"}
+                      {item.role === 'surface' ? t(" · 落点") : item.coverage != null ? t(" · 对象") : on ? "" : t(" · 未纳入")}
                     </button>
                   );
                 })
@@ -389,7 +399,7 @@ export function Workbench() {
             </div>
             {selection.some((item) => item.included === false && item.role !== 'surface') ? (
               <p className="text-xs leading-relaxed text-muted">
-                未纳入的对象不会进入修改范围。
+                {t("未纳入的对象不会进入修改范围。")}
               </p>
             ) : null}
             <div className="grid grid-cols-2 gap-2">
@@ -400,7 +410,7 @@ export function Workbench() {
               value={draftText}
               onChange={(event) => setDraftText(event.target.value)}
               rows={3}
-              placeholder={draftIntent === "question" ? "这几个物体的比例和光线协不协调？" : "杯子偏大，木纹方向不对"}
+              placeholder={draftIntent === "question" ? t("这几个物体的比例和光线协不协调？") : t("杯子偏大，木纹方向不对")}
               className="w-full resize-none rounded-md border border-line bg-bg px-3 py-2 text-sm text-fg outline-none"
             />
             <button
@@ -409,23 +419,23 @@ export function Workbench() {
               onClick={() => { if (saveDraft()) { viewRef.current?.cancelVolume(); selectionHistory.current = []; setCanUndoSelection(false); } }}
               className={`hover-ring h-11 rounded-md text-sm font-medium text-bg disabled:opacity-40 ${draftIntent === "edit" ? "bg-edit" : "bg-ask"}`}
             >
-              记下这条批注
+              {t("记下这条批注")}
             </button>
             <p className="text-xs text-muted" role="status">
-              {bridgeStatus === 'sent' ? '批注已提交，可回到工作区说“继续”。' : bridgeStatus === 'sending' ? '正在交接批注…' : bridgeStatus === 'error' ? '交接失败：批注仍保存在本浏览器。' : '保存批注后会自动交接给工作区'}
-              {bridgeStatus === 'error' && <button type="button" onClick={retryBridge} className="ml-2 text-ask underline">重试</button>}
+              {bridgeStatus === 'sent' ? t("批注已提交，可回到工作区说“继续”。") : bridgeStatus === 'sending' ? t("正在交接批注…") : bridgeStatus === 'error' ? t("交接失败：批注仍保存在本浏览器。") : t("保存批注后会自动交接给工作区")}
+              {bridgeStatus === 'error' && <button type="button" onClick={retryBridge} className="ml-2 text-ask underline">{t("重试")}</button>}
             </p>
           </section>
 
           <section className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="text-sm font-medium">批注</h2>
-              {annotations.some(note => (note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0) && <button type="button" aria-label={annotations.some(note => note.highlightVisible !== false && ((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0)) ? '隐藏全部批注高亮' : '显示全部批注高亮'} onClick={() => useStudio.getState().setAllAnnotationHighlights(!annotations.some(note => note.highlightVisible !== false && ((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0)))} className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-xs text-muted">{annotations.some(note => note.highlightVisible !== false && ((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0)) ? <><Eye className="size-4"/>隐藏全部高亮</> : <><EyeOff className="size-4"/>显示全部高亮</>}</button>}
-              <span className="text-xs text-muted">{annotations.length} 条</span>
+              <h2 className="text-sm font-medium">{t("批注")}</h2>
+              {annotations.some(note => (note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0) && <button type="button" aria-label={annotations.some(note => note.highlightVisible !== false && ((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0)) ? t("隐藏全部批注高亮") : t("显示全部批注高亮")} onClick={() => useStudio.getState().setAllAnnotationHighlights(!annotations.some(note => note.highlightVisible !== false && ((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0)))} className="inline-flex items-center gap-1 rounded border border-line px-2 py-1 text-xs text-muted">{annotations.some(note => note.highlightVisible !== false && ((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0)) ? <><Eye className="size-4"/>{t("隐藏全部高亮")}</> : <><EyeOff className="size-4"/>{t("显示全部高亮")}</>}</button>}
+              <span className="text-xs text-muted">{annotations.length} {language==='en'?'annotations':'条'}</span>
             </div>
             {annotations.length === 0 ? (
               <p className="text-sm leading-relaxed text-muted">
-                每条批注单独保存。框选保留所有命中；后方表面只记录落点。整幅只附当前视角。
+                {t("每条批注单独保存。框选保留所有命中；后方表面只记录落点。整幅只附当前视角。")}
               </p>
             ) : (
               annotations.map((note) => (
@@ -442,7 +452,7 @@ export function Workbench() {
           </section>
 
           <details className="border-t border-line pt-3 text-sm">
-            <summary className="cursor-pointer text-muted">快照节点编号（重导出或改名可能变化）</summary>
+            <summary className="cursor-pointer text-muted">{t("快照节点编号（重导出或改名可能变化）")}</summary>
             <ul className="mt-2 flex flex-col gap-1 font-mono text-xs text-muted">
               {CATALOG.map((item) => (
                 <li key={item.id}>
@@ -454,56 +464,64 @@ export function Workbench() {
         </aside>
       </div>
       <div className="fixed bottom-4 right-4 z-20">
-        <button type="button" aria-label="设置" onClick={()=>{setSettingsTab('view');setShortcutDraft({...shortcuts});setCapturing(null);setShortcutSettings(true);}} className="hover-ring inline-flex items-center gap-2 rounded-md border border-line bg-raised px-3 py-2 text-xs text-fg shadow-lg"><Settings size={16}/>设置</button>
+        <button type="button" aria-label={t("设置")} onClick={()=>{setSettingsTab('view');setLanguageDraft(language);setShortcutDraft({...shortcuts});setCapturing(null);setShortcutSettings(true);}} className="hover-ring inline-flex items-center gap-2 rounded-md border border-line bg-raised px-3 py-2 text-xs text-fg shadow-lg"><Settings size={16}/>{t("设置")}</button>
       </div>
       {shortcutSettings && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="presentation">
-        <div role="dialog" aria-modal="true" aria-label="设置" className="settings-dialog relative flex w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-line bg-surface text-fg shadow-xl">
-          <div className="flex items-center justify-between border-b border-line px-5 py-4"><div><h2 className="text-lg font-medium">设置</h2><p className="mt-1 text-xs text-muted">根据使用习惯调整预览与操作</p></div><button type="button" aria-label="关闭设置" onClick={()=>setShortcutSettings(false)} className="rounded p-2 text-muted hover:bg-raised hover:text-fg"><X size={19}/></button></div>
+        <div role="dialog" aria-modal="true" aria-label={t("设置")} className="settings-dialog relative flex w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-line bg-surface text-fg shadow-xl">
+          <div className="flex items-center justify-between border-b border-line px-5 py-4"><div><h2 className="text-lg font-medium">{t("设置")}</h2><p className="mt-1 text-xs text-muted">{t("根据使用习惯调整预览与操作")}</p></div><button type="button" aria-label={t("关闭设置")} onClick={()=>setShortcutSettings(false)} className="rounded p-2 text-muted hover:bg-raised hover:text-fg"><X size={19}/></button></div>
           <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-            <nav aria-label="设置分类" className="flex gap-2 border-b border-line p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">
-              <button type="button" onClick={()=>setSettingsTab('view')} aria-pressed={settingsTab==='view'} className={`hover-ring rounded-md px-3 py-3 text-left text-sm ${settingsTab==='view'?'bg-ask/15 text-ask':'text-muted hover:bg-raised hover:text-fg'}`}>视野设置</button>
-              <button type="button" onClick={()=>setSettingsTab('shortcuts')} aria-pressed={settingsTab==='shortcuts'} className={`hover-ring rounded-md px-3 py-3 text-left text-sm ${settingsTab==='shortcuts'?'bg-ask/15 text-ask':'text-muted hover:bg-raised hover:text-fg'}`}>自定义键位</button>
+            <nav aria-label={t("设置分类")} className="flex gap-2 border-b border-line p-3 sm:w-44 sm:shrink-0 sm:flex-col sm:border-b-0 sm:border-r">
+              <button type="button" onClick={()=>setSettingsTab('view')} aria-pressed={settingsTab==='view'} className={`hover-ring rounded-md px-3 py-3 text-left text-sm ${settingsTab==='view'?'bg-ask/15 text-ask':'text-muted hover:bg-raised hover:text-fg'}`}>{t("视野设置")}</button>
+              <button type="button" onClick={()=>setSettingsTab('language')} aria-pressed={settingsTab==='language'} className={`hover-ring rounded-md px-3 py-3 text-left text-sm ${settingsTab==='language'?'bg-ask/15 text-ask':'text-muted hover:bg-raised hover:text-fg'}`}>{language==='en'?'Language':'语言'}</button>
+              <button type="button" onClick={()=>setSettingsTab('shortcuts')} aria-pressed={settingsTab==='shortcuts'} className={`hover-ring rounded-md px-3 py-3 text-left text-sm ${settingsTab==='shortcuts'?'bg-ask/15 text-ask':'text-muted hover:bg-raised hover:text-fg'}`}>{t("自定义键位")}</button>
             </nav>
             <div className="min-w-0 flex-1 overflow-y-auto p-5 sm:p-6">
-              <div hidden={settingsTab!=='view'} role="group" aria-label="视野设置">
-                <h3 className="text-base font-medium">视野设置</h3><p className="mt-1 text-xs text-muted">调整预览视角与近景显示，修改后自动保存。</p>
-                <div className="mt-6 flex items-center justify-between text-sm"><span>视野角度</span><span>{viewSettings.fov}°</span></div>
-                <input aria-label="视野角度" type="range" min="30" max="100" step="1" value={viewSettings.fov} onChange={event=>updateView({...viewSettings,fov:Number(event.target.value)})} className="mt-2 w-full accent-blue-500" />
-                <p className="mt-1 text-xs text-muted">角度越大，看到的范围越广。</p>
-                <div className="mt-6 flex items-center justify-between text-sm"><span>近景裁剪</span><span>{Number(viewSettings.nearFactor.toPrecision(2))}×</span></div>
-                <input aria-label="近景裁剪" type="range" min="0" max="200" step="1" value={Math.round(100+100*Math.log10(viewSettings.nearFactor))} onChange={event=>updateView({...viewSettings,nearFactor:Math.pow(10,(Number(event.target.value)-100)/100)})} className="mt-2 w-full accent-blue-500" />
-                <div className="flex justify-between text-xs text-muted"><span>靠得更近</span><span>远景更稳定</span></div>
-                <p className="mt-2 text-xs text-muted">仍会随视距自动调整；过小可能让远处表面闪烁。</p>
+              <div hidden={settingsTab!=='view'} role="group" aria-label={t("视野设置")}>
+                <h3 className="text-base font-medium">{t("视野设置")}</h3><p className="mt-1 text-xs text-muted">{t("调整预览视角与近景显示，修改后自动保存。")}</p>
+                <div className="mt-6 flex items-center justify-between text-sm"><span>{t("视野角度")}</span><span>{viewSettings.fov}°</span></div>
+                <input aria-label={t("视野角度")} type="range" min="30" max="100" step="1" value={viewSettings.fov} onChange={event=>updateView({...viewSettings,fov:Number(event.target.value)})} className="mt-2 w-full accent-blue-500" />
+                <p className="mt-1 text-xs text-muted">{t("角度越大，看到的范围越广。")}</p>
+                <div className="mt-6 flex items-center justify-between text-sm"><span>{t("近景裁剪")}</span><span>{Number(viewSettings.nearFactor.toPrecision(2))}×</span></div>
+                <input aria-label={t("近景裁剪")} type="range" min="0" max="200" step="1" value={Math.round(100+100*Math.log10(viewSettings.nearFactor))} onChange={event=>updateView({...viewSettings,nearFactor:Math.pow(10,(Number(event.target.value)-100)/100)})} className="mt-2 w-full accent-blue-500" />
+                <div className="flex justify-between text-xs text-muted"><span>{t("靠得更近")}</span><span>{t("远景更稳定")}</span></div>
+                <p className="mt-2 text-xs text-muted">{t("仍会随视距自动调整；过小可能让远处表面闪烁。")}</p>
+              </div>
+              <div hidden={settingsTab!=='language'} role="group" aria-label={language==='en'?'Language':'语言'}>
+                <h3 className="text-base font-medium">{language==='en'?'Language':'语言'}</h3>
+                <p className="mt-1 text-xs text-muted">{language==='en'?'Choose the interface language.':'选择界面语言。'}</p>
+                <select aria-label={language==='en'?'Interface language':'界面语言'} value={languageDraft} onChange={e=>setLanguageDraft(e.target.value as Language)} className="mt-4 rounded border border-line bg-raised p-2 text-fg"><option value="zh">简体中文</option><option value="en">English</option></select>
               </div>
               <div hidden={settingsTab!=='shortcuts'}><ShortcutSettings draft={shortcutDraft} setDraft={setShortcutDraft} capturing={capturing} setCapturing={setCapturing} onToast={showToast} /></div>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-line px-5 py-4">
-            {settingsError && <span role="status" className="mr-auto text-xs text-red-400">{settingsError}</span>}
-            <button type="button" onClick={()=>{if(settingsTab==='view')updateView({fov:42,nearFactor:1});else {setShortcutDraft({...DEFAULT_SHORTCUTS});setCapturing(null);}}} className="hover-ring rounded border border-line px-3 py-2 text-sm">恢复默认</button>
-            <button type="button" onClick={()=>setShortcutSettings(false)} className="hover-ring rounded border border-line px-3 py-2 text-sm">取消</button>
-            <button type="button" disabled={capturing!==null || savingSettings} onClick={()=>{setSavingSettings(true);void (async()=>{const pendingView=!!viewTimer.current;if(viewTimer.current){clearTimeout(viewTimer.current);viewTimer.current=null;}await viewQueue.current;if(pendingView || viewSaveError.current){try{const response=await fetch('/__point_edit_3d/view-settings',{method:'POST',headers:{'Content-Type':'application/json','X-Point-Edit':'view-settings'},body:JSON.stringify(viewSettings)});if(!response.ok)throw new Error();viewSaveError.current=false;setSettingsError('');}catch{viewSaveError.current=true;throw new Error('视野设置未能保存');}}if(SHORTCUTS.some(item=>shortcutDraft[item.id]!==shortcuts[item.id])) await saveShortcuts(shortcutDraft);setShortcuts(shortcutDraft);setShortcutSettings(false);showToast('保存成功');})().catch(error=>{const message=error instanceof Error ? error.message : '快捷键未能保存，请重试';if(message==='视野设置未能保存')setSettingsError('视野设置未能保存，请重试');else showToast(message);}).finally(()=>setSavingSettings(false));}} className="hover-ring rounded bg-ask px-3 py-2 text-sm text-bg disabled:opacity-40">保存</button>
+            {settingsError && <span role="status" className="mr-auto text-xs text-red-400">{t(settingsError)}</span>}
+            <button type="button" onClick={()=>{if(settingsTab==='view')updateView({fov:42,nearFactor:1});else if(settingsTab==='language')setLanguageDraft('zh');else {setShortcutDraft({...DEFAULT_SHORTCUTS});setCapturing(null);}}} className="hover-ring rounded border border-line px-3 py-2 text-sm">{t("恢复默认")}</button>
+            <button type="button" onClick={()=>setShortcutSettings(false)} className="hover-ring rounded border border-line px-3 py-2 text-sm">{t("取消")}</button>
+            <button type="button" disabled={capturing!==null || savingSettings} onClick={()=>{setSavingSettings(true);void (async()=>{const pendingView=!!viewTimer.current;if(viewTimer.current){clearTimeout(viewTimer.current);viewTimer.current=null;}await viewQueue.current;if(pendingView || viewSaveError.current){try{const response=await fetch('/__point_edit_3d/view-settings',{method:'POST',headers:{'Content-Type':'application/json','X-Point-Edit':'view-settings'},body:JSON.stringify(viewSettings)});if(!response.ok)throw new Error();viewSaveError.current=false;setSettingsError('');}catch{viewSaveError.current=true;throw new Error('视野设置未能保存');}}if(SHORTCUTS.some(item=>shortcutDraft[item.id]!==shortcuts[item.id])) await saveShortcuts(shortcutDraft);if(languageDraft!==language){await saveLanguage(languageDraft);setLanguage(languageDraft);}setShortcuts(shortcutDraft);setShortcutSettings(false);showToast('保存成功');})().catch(error=>{const message=error instanceof Error ? error.message : t("快捷键未能保存，请重试");if(message==='视野设置未能保存')setSettingsError(t("视野设置未能保存，请重试"));else showToast(message);}).finally(()=>setSavingSettings(false));}} className="hover-ring rounded bg-ask px-3 py-2 text-sm text-bg disabled:opacity-40">{t("保存")}</button>
           </div>
-          {toast && <div key={toast.id} role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="shortcut-toast rounded-lg bg-black/85 px-6 py-3 text-sm font-medium text-white shadow-lg">{toast.text}</div></div>}
+          {toast && <div key={toast.id} role="status" aria-live="polite" className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center"><div className="shortcut-toast rounded-lg bg-black/85 px-6 py-3 text-sm font-medium text-white shadow-lg">{t(toast.text)}</div></div>}
         </div>
       </div>}
-      {toast && !shortcutSettings && <div key={toast.id} role="status" aria-live="polite" className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center"><div className="shortcut-toast rounded-lg bg-black/85 px-6 py-3 text-sm font-medium text-white shadow-lg">{toast.text}</div></div>}
+      {toast && !shortcutSettings && <div key={toast.id} role="status" aria-live="polite" className="pointer-events-none fixed inset-0 z-[70] flex items-center justify-center"><div className="shortcut-toast rounded-lg bg-black/85 px-6 py-3 text-sm font-medium text-white shadow-lg">{t(toast.text)}</div></div>}
     </div>
+    </LanguageContext.Provider>
   );
 }
 
 function ShortcutSettings({draft,setDraft,capturing,setCapturing,onToast}:{draft:ShortcutMap;setDraft:React.Dispatch<React.SetStateAction<ShortcutMap>>;capturing:ShortcutId|null;setCapturing:React.Dispatch<React.SetStateAction<ShortcutId|null>>;onToast:(message:string)=>void}) {
+  const t=useT();
   function capture(id:ShortcutId,event:ReactKeyboardEvent<HTMLButtonElement>) {
     event.preventDefault();event.stopPropagation();
     if(event.key==='Escape'){setCapturing(null);return;}
     const key=shortcutFromEvent(event.nativeEvent);if(!key)return;
     const duplicate=SHORTCUTS.find(item=>item.id!==id && draft[item.id]===key);
-    if(duplicate){onToast(`${shortcutLabel(key)} 已分配给“${duplicate.label}”`);return;}
+    if(duplicate){onToast(`${shortcutLabel(key)} ${t('已分配给')} ${t(duplicate.label)}`);return;}
     setDraft(current=>({...current,[id]:key}));setCapturing(null);
   }
   return <div>
-      <h3 className="text-base font-medium">自定义键位</h3><p className="mt-1 text-xs text-muted">点击键位后按下新快捷键；Esc 取消录入。输入文字时快捷键不会触发。</p>
-      <div className="mt-4 flex flex-col gap-2">{SHORTCUTS.map(item=><div key={item.id} className="flex items-center justify-between gap-4 text-sm"><span>{item.label}</span><button type="button" aria-label={`设置${item.label}快捷键`} aria-pressed={capturing===item.id} onClick={()=>{setCapturing(item.id);}} onKeyDown={event=>{if(capturing===item.id)capture(item.id,event);}} className={`hover-ring min-w-28 rounded border px-3 py-2 text-xs ${capturing===item.id?'border-ask text-ask':'border-line text-fg'}`}>{capturing===item.id?'请按快捷键…':shortcutLabel(draft[item.id])}</button></div>)}</div>
+      <h3 className="text-base font-medium">{t("自定义键位")}</h3><p className="mt-1 text-xs text-muted">{t("点击键位后按下新快捷键；Esc 取消录入。输入文字时快捷键不会触发。")}</p>
+      <div className="mt-4 flex flex-col gap-2">{SHORTCUTS.map(item=><div key={item.id} className="flex items-center justify-between gap-4 text-sm"><span>{t(item.label)}</span><button type="button" aria-label={`${t('自定义键位')}: ${t(item.label)}`} aria-pressed={capturing===item.id} onClick={()=>{setCapturing(item.id);}} onKeyDown={event=>{if(capturing===item.id)capture(item.id,event);}} className={`hover-ring min-w-28 rounded border px-3 py-2 text-xs ${capturing===item.id?'border-ask text-ask':'border-line text-fg'}`}>{capturing===item.id?t("请按快捷键…"):shortcutLabel(draft[item.id])}</button></div>)}</div>
 
   </div>;
 }
@@ -517,6 +535,7 @@ function IntentButton({
   current: "question" | "edit";
   onClick: () => void;
 }) {
+  const t=useT();
   const on = current === intent;
   const question = intent === "question";
   return (
@@ -531,7 +550,7 @@ function IntentButton({
           : "border-line text-muted"
       }`}
     >
-      {question ? "询问" : "编辑"}
+      {question ? t("询问") : t("编辑")}
     </button>
   );
 }
@@ -549,6 +568,7 @@ function NoteCard({
   onMutate: () => void;
   view: RefObject<ViewportHandle | null>;
 }) {
+  const t=useT();
   const [targetId, setTargetId] = useState("");
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState('');
@@ -581,17 +601,17 @@ function NoteCard({
           onClick={onFocus}
           className={`text-xs ${question ? "text-ask" : "text-edit"}`}
         >
-          {number === 0 ? "0" : number <= 20 ? String.fromCodePoint(0x2460 + number - 1) : `(${number})`} {question ? "询问" : "编辑"}
-          {note.scope === "viewport" ? " · 整幅" : ""}
+          {number === 0 ? "0" : number <= 20 ? String.fromCodePoint(0x2460 + number - 1) : `(${number})`} {question ? t("询问") : t("编辑")}
+          {note.scope === "viewport" ? t(" · 整幅") : ""}
         </button>
-        {((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0) && <button type="button" aria-label={`${note.highlightVisible === false ? '显示' : '隐藏'}批注${number}高亮`} title={note.highlightVisible === false ? '显示高亮' : '隐藏高亮'} onClick={() => useStudio.getState().setAnnotationHighlight(note.id, note.highlightVisible === false)} className="inline-flex items-center gap-1 text-xs text-muted">{note.highlightVisible === false ? <><EyeOff className="size-4"/>显示高亮</> : <><Eye className="size-4"/>隐藏高亮</>}</button>}
+        {((note.pointSelectionIds?.length ?? 0) > 0 || (note.selectionVolumes?.length ?? 0) > 0) && <button type="button" aria-label={`${note.highlightVisible === false ? t('显示高亮') : t('隐藏高亮')} ${number}`} title={note.highlightVisible === false ? t("显示高亮") : t("隐藏高亮")} onClick={() => useStudio.getState().setAnnotationHighlight(note.id, note.highlightVisible === false)} className="inline-flex items-center gap-1 text-xs text-muted">{note.highlightVisible === false ? <><EyeOff className="size-4"/>{t("显示高亮")}</> : <><Eye className="size-4"/>{t("隐藏高亮")}</>}</button>}
         <span className="ml-auto text-xs text-muted">
           {new Date(note.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
         </span>
-        <button type="button" aria-label="编辑批注" title="编辑批注" onClick={() => { setEditText(note.text); setEditBase(note.text); setEditNotice(''); setPendingTargets(undefined); setPendingVolume(null); setEditing(true); }} className="text-muted"><Pencil className="size-4" /></button>
+        <button type="button" aria-label={t("编辑批注")} title={t("编辑批注")} onClick={() => { setEditText(note.text); setEditBase(note.text); setEditNotice(''); setPendingTargets(undefined); setPendingVolume(null); setEditing(true); }} className="text-muted"><Pencil className="size-4" /></button>
         <button
           type="button"
-          aria-label="删除批注"
+          aria-label={t("删除批注")}
           onClick={() => useStudio.getState().removeAnnotation(note.id)}
           className="text-muted"
         >
@@ -600,7 +620,7 @@ function NoteCard({
       </div>
       <div className="mt-2 flex flex-wrap gap-1">
         {note.targets.length === 0 ? (
-          <span className="text-xs text-muted">整幅视口</span>
+          <span className="text-xs text-muted">{t("整幅视口")}</span>
         ) : (
           note.targets.map((item) => {
             const inSentence = isBound(item);
@@ -622,13 +642,13 @@ function NoteCard({
       </div>
         {editing ? (
         <div className="mt-2 flex flex-col gap-2">
-          <textarea aria-label="编辑批注正文" value={editText} onChange={event => setEditText(event.target.value)} rows={3} className="w-full resize-y rounded-md border border-line bg-bg p-2 text-sm text-fg outline-none" />
-          {note.scope === 'objects' && <button type="button" disabled={!canUpdateTargets} onClick={() => { const current=useStudio.getState();setPendingTargets(currentSelection.map(item=>({...item}))); setPendingVolume(current.selectionVolume);setPendingRegions(current.selectionVolumes.map(r=>({...r,objectIds:[...r.objectIds]})));setPendingPoints([...current.pointSelectionIds]);setPendingHidden([...current.hiddenPointIds]); setEditNotice('保存修改时将使用当前选区'); }} className="self-start rounded-md border border-line px-2 py-1 text-xs text-fg disabled:opacity-40">使用当前选区</button>}
-          {editNotice && <p className="text-xs text-muted">{editNotice}</p>}
-          {note.text !== editBase && <p className="text-xs text-muted">批注已被其他操作更新，请取消后重新编辑。</p>}
+          <textarea aria-label={t("编辑批注正文")} value={editText} onChange={event => setEditText(event.target.value)} rows={3} className="w-full resize-y rounded-md border border-line bg-bg p-2 text-sm text-fg outline-none" />
+          {note.scope === 'objects' && <button type="button" disabled={!canUpdateTargets} onClick={() => { const current=useStudio.getState();setPendingTargets(currentSelection.map(item=>({...item}))); setPendingVolume(current.selectionVolume);setPendingRegions(current.selectionVolumes.map(r=>({...r,objectIds:[...r.objectIds]})));setPendingPoints([...current.pointSelectionIds]);setPendingHidden([...current.hiddenPointIds]); setEditNotice(t("保存修改时将使用当前选区")); }} className="self-start rounded-md border border-line px-2 py-1 text-xs text-fg disabled:opacity-40">{t("使用当前选区")}</button>}
+          {editNotice && <p className="text-xs text-muted">{t(editNotice)}</p>}
+          {note.text !== editBase && <p className="text-xs text-muted">{t("批注已被其他操作更新，请取消后重新编辑。")}</p>}
           <div className="flex gap-2">
-            <button type="button" disabled={!editText.trim() || note.text !== editBase} onClick={() => { if (useStudio.getState().editAnnotation(note.id, editText, pendingTargets, pendingVolume,pendingRegions,pendingPoints,pendingHidden)) setEditing(false); else setEditNotice('保存失败，请重新选择对象'); }} className="rounded-md bg-ask px-3 py-2 text-xs text-bg disabled:opacity-40">保存修改</button>
-            <button type="button" onClick={() => setEditing(false)} className="rounded-md border border-line px-3 py-2 text-xs text-fg">取消</button>
+            <button type="button" disabled={!editText.trim() || note.text !== editBase} onClick={() => { if (useStudio.getState().editAnnotation(note.id, editText, pendingTargets, pendingVolume,pendingRegions,pendingPoints,pendingHidden)) setEditing(false); else setEditNotice(t("保存失败，请重新选择对象")); }} className="rounded-md bg-ask px-3 py-2 text-xs text-bg disabled:opacity-40">{t("保存修改")}</button>
+            <button type="button" onClick={() => setEditing(false)} className="rounded-md border border-line px-3 py-2 text-xs text-fg">{t("取消")}</button>
           </div>
         </div>
       ) : <p className="mt-2 text-sm leading-relaxed text-fg">{note.text}</p>}
@@ -638,21 +658,20 @@ function NoteCard({
           onClick={() => useStudio.getState().setAnnotationIntent(note.id, "question")}
           className={`h-9 rounded-md px-2 text-xs ${question ? "bg-ask/15 text-ask" : "text-muted"}`}
         >
-          改成询问
+          {t("改成询问")}
         </button>
         <button
           type="button"
           onClick={() => useStudio.getState().setAnnotationIntent(note.id, "edit")}
           className={`h-9 rounded-md px-2 text-xs ${!question ? "bg-edit/15 text-edit" : "text-muted"}`}
         >
-          改成编辑
+          {t("改成编辑")}
         </button>
       </div>
       {!question && active ? (
         <div className="mt-3 flex flex-col gap-2">
           <p className="text-xs text-muted">
-            仅在网页副本中调整 {active.name}
-            ，不会写回 {isC4d ? "C4D" : "Blender"}。
+            {t('仅在网页副本中调整')} {active.name}{t('，不会写回')} {isC4d ? 'C4D' : 'Blender'}.
           </p>
           <div className="grid grid-cols-4 gap-1">
             {AXES.map((item) => (
@@ -662,7 +681,7 @@ function NoteCard({
                 onClick={() => run(() => view.current?.nudge(active.objectId, item.axis, item.delta))}
                 className="h-10 rounded-md border border-line text-xs text-fg"
               >
-                {item.label}
+                {t(item.label)}
               </button>
             ))}
             <button
@@ -670,14 +689,14 @@ function NoteCard({
               onClick={() => run(() => view.current?.scaleBy(active.objectId, 1.08))}
               className="h-10 rounded-md border border-line text-xs text-fg"
             >
-              放大
+              {t("放大")}
             </button>
             <button
               type="button"
               onClick={() => run(() => view.current?.scaleBy(active.objectId, 0.92))}
               className="h-10 rounded-md border border-line text-xs text-fg"
             >
-              缩小
+              {t("缩小")}
             </button>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -688,7 +707,7 @@ function NoteCard({
                 onClick={() => run(() => view.current?.finish(active.objectId, item.id))}
                 className="h-9 rounded-md border border-line px-2 text-xs text-fg"
               >
-                {item.label}
+                {t(item.label)}
               </button>
             ))}
             <button
@@ -697,7 +716,7 @@ function NoteCard({
               className="inline-flex h-9 items-center gap-1 rounded-md border border-line px-2 text-xs text-fg"
             >
               <Undo2 className="size-3" />
-              撤销
+              {t("撤销")}
             </button>
           </div>
         </div>
@@ -718,6 +737,7 @@ function TargetChip({
   dimmed?: boolean;
   onClick: () => void;
 }) {
+  const t=useT();
   return (
     <button
       type="button"
@@ -728,7 +748,7 @@ function TargetChip({
     >
       {item.name}
       {percent(item.coverage) ? ` ${percent(item.coverage)}` : ""}
-      {dimmed ? " · 不改" : ""}
+      {dimmed ? t(" · 不改") : ""}
     </button>
   );
 }

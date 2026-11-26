@@ -37796,6 +37796,36 @@ function pointEditBridge({ directory = (0, import_node_path2.resolve)("point-edi
           res.writeHead(400, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ ok: false, error: String(error62) }));
         }
       });
+      server.middlewares.use("/__point_edit_3d/language", async (req, res) => {
+        const origin = req.headers.origin, host = req.headers.host || "";
+        if (!/^127\.0\.0\.1:\d+$/.test(host) || origin && origin !== `http://${host}` || req.headers["x-point-edit"] !== "language") return res.writeHead(403).end();
+        const file2 = (0, import_node_path2.resolve)(directory, "language-settings.json");
+        try {
+          if (req.method === "GET") {
+            let language2 = "zh";
+            try {
+              const saved = JSON.parse(await (0, import_promises2.readFile)(file2, "utf8"));
+              if (saved.language === "en") language2 = "en";
+            } catch (e) {
+              if (e.code !== "ENOENT") throw e;
+            }
+            return res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ language: language2 }));
+          }
+          if (req.method !== "POST" || origin !== `http://${host}` || !req.headers["content-type"]?.startsWith("application/json")) return res.writeHead(403).end();
+          let body = "";
+          for await (const chunk of req) {
+            body += chunk;
+            if (body.length > 1024) throw new Error("Invalid settings");
+          }
+          const { language } = JSON.parse(body);
+          if (language !== "zh" && language !== "en") throw new Error("Invalid language");
+          await (0, import_promises2.mkdir)(directory, { recursive: true });
+          await (0, import_promises2.writeFile)(file2, JSON.stringify({ language }), "utf8");
+          return res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ ok: true }));
+        } catch (e) {
+          return res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: false }));
+        }
+      });
       server.middlewares.use("/__point_edit_3d/view-settings", async (req, res) => {
         const origin = req.headers.origin, host = req.headers.host || "";
         if (!/^127\.0\.0\.1:\d+$/.test(host) || origin && origin !== `http://${host}` || req.headers["x-point-edit"] !== "view-settings") return res.writeHead(403).end();
